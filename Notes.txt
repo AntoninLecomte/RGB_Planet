@@ -1,0 +1,9 @@
+LEDS:
+Max 3200 LEDS on ESP 32 (10 strips max) https://www.reddit.com/r/WLED/comments/125ggev/how_many_leds_can_it_handle/
+Max 16 strips on RaspberrryPi
+
+Use of narrow ws2812b 2,7mm LEDs https://www.aliexpress.com/item/1005006618544267.html?spm=a2g0o.order_list.order_list_main.67.7dde1802vpEszL&gatewayAdapt=glo2fra
+
+
+MAP:
+Good GEM source: https://www.earthenv.org/topography
