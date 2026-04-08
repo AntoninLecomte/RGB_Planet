@@ -8,3 +8,5 @@ Use of narrow ws2812b 2,7mm LEDs https://www.aliexpress.com/item/100500661854426
 
 MAP:
 Good GEM source: https://www.earthenv.org/topography
+
+ESP32 devkitC Datasheets: https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32/esp32-devkitc/index.html
