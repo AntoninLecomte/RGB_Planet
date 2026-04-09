@@ -101,6 +101,8 @@ void stripTest() {
     }
 }
 
+
+
 // Updates all points sun elevation angles at a given date
 void updateElevations(time_t timeToCompute){
     for (int stripID=0; stripID < STRIPS; stripID++){
@@ -121,6 +123,27 @@ void updateElevations(time_t timeToCompute){
     }
 }
 
+// Takes a linear scale 0-1 and fill rgbArray from corresponding colors 
+void scaleToColor(float scale, float rgbArray[3]){
+    float redScale = pow(scale, 0.1);
+    float greenScale = pow(scale, 0.4);
+    float blueScale = pow(scale, 2.0);
+
+    rgbArray[0] = 255.0 * redScale;
+    rgbArray[1] = 255.0 * greenScale;
+    rgbArray[2] = 255.0 * blueScale;
+}
+
+// Display the sun color scale on a given strip
+void displayColorScale(int stripID){
+    for (int ledID=0; ledID < LEDS_BY_STRIP; ledID++){
+        float RGBValues[3];
+        scaleToColor(ledID/LEDS_BY_STRIP, RGBValues);
+
+        leds[stripID][ledID].setRGB(RGBValues[0],RGBValues[1],RGBValues[2]);
+    }
+}
+
 // Set LEDs colors depending on their elevations
 void updateLEDColors() {
      for (int stripID=0; stripID < STRIPS; stripID++){
@@ -136,19 +159,17 @@ void updateLEDColors() {
                     float intensity = 0.1; // LED intensity,for power and max current management
                     float sunPhaseScale = sunElevations[stripID][ledID] / 90.0; // Normalized sun phase value, 0 is horizon, 1 is zenith
 
-                    float redScale = pow(sunPhaseScale, 0.1);
-                    float greenScale = pow(sunPhaseScale, 0.4);
-                    float blueScale = pow(sunPhaseScale, 2.0);
-                    leds[stripID][ledID].setRGB(
-                        intensity * 255.0 * redScale, 
-                        intensity * 255.0*greenScale,
-                        intensity * 255.0*blueScale
-                    );
+                    float RGBValues[3];
+                    scaleToColor(sunPhaseScale, RGBValues);
+
+                    leds[stripID][ledID].setRGB(RGBValues[0] * intensity, RGBValues[1] * intensity, RGBValues[2] * intensity);
                 }
             }
         }
     }
 }
+
+
 
 
 // Animate sun position from current date to targetDate, running intermediate animation positions during duration ms.
@@ -166,8 +187,11 @@ void animateToDate(time_t targetDate, int duration){
 }
 
 void loop() {
-    // Periodic tests to ensure the lights work
+    // Tests to ensure the lights work
     stripTest();
+
+    // Tune the colorscale
+    displayColorScale(0);
 
     // Test a computation and check elevation results
 
