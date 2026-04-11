@@ -1,0 +1,7 @@
+updateElevations with library: 73ms
+updateElevationsCustom: 50ms 
+updateElevationsCustom optimized: 16ms
+
+elevationToColors: 7ms (no update) to 21ms (full update)
+
+updateElevations + elevationToColors: 37ms, 27 FPS
