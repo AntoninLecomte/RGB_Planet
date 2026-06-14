@@ -27,7 +27,7 @@ const char* timeAPIURL = "https://time.now/developer/api/ip";
 
 // Current configuration
 const float currentPerLEDColor = 0.02; // mA
-const float availableAmps = 1.0; // A
+const float availableAmps = 0.1; // A
 
 // Physical LED bands:
 const double LEDS_DIAMETER = 233.427; // mm
@@ -401,21 +401,37 @@ void displayDate(time_t date){
     elevationsToColors(sunElevations);
 }
 
-// Animate sun position from current date to targetDate, running intermediate animation positions during duration ms.
-void animateToDate(int duration, time_t targetDate){
+// Animate sun position from current date to targetDate in duration milliseconds. If forcedDateStep is specified, goes to the closest round number of iterations to match the duration.
+void animateToDate(int duration, time_t targetDate, long forcedDateStep){
     time_t animatedTime = now(); // Store start date, to be animated
+    time_t startTime = now(); // Keep track of starting time
+    long step = 0; // Steps counter for animation
+    float ratio; // For animation, 0 to 1 linear
+    float animatedProgress; // 0 to 1 cubic
 
     long n_steps = (long) ((float) duration / (float) frameRefreshTime); // Number of steps that will be executed
-    long totalSeconds = targetDate - animatedTime; // Total duration in seconds
-    long dateStep = (long) ((float) totalSeconds / (float) n_steps); // Date gap to be crossed at each animation frame
+    long totalSeconds = targetDate - animatedTime; // Total duration between current date and target date in seconds
+    long dateStep;
+    if (forcedDateStep != 0){
+        dateStep = round(totalSeconds/n_steps/forcedDateStep)*forcedDateStep;
+        if (dateStep == 0){dateStep = forcedDateStep;}
+    }
 
     while (animatedTime < targetDate){
+        ratio = (float) step / (float) n_steps;
+        // animatedProgress =  -(cos(PI * ratio) - 1) / 2; // Sine
+        animatedProgress = ratio; // Linear
+
+        if (forcedDateStep == 0){
+            animatedTime = startTime + animatedProgress*totalSeconds;
+        }else{
+            animatedTime += dateStep;
+        }
+
         displayDate(animatedTime);
-        animatedTime += dateStep;
+        step++;
     }
 }
-
-
 
 
 void setup() {
@@ -493,10 +509,13 @@ void loop() {
     Serial.println();
 
     // Show current time:
-    displayDate(now());
-    delay(10000);
+    // displayDate(now());
+    // delay(1000);
 
+    // Animate a day:
+    // animateToDate(3000,now()+24*60*60,0);
+    
     // Animate a year:
-    animateToDate(2000,now()+365*24*60*60);
+    animateToDate(5000, now()+365*24*60*60, 24*60*60);
 }
 
