@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>RGBPlanet</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+        <style>
+            /* UI */
+            .UI_RollingNumberDiv{
+                display: flex;
+            }
+            .UI_RollingNumberDigitWindow{
+                height: 1.5em;
+                overflow-y: hidden;
+                overflow-x: hidden;
+            }
+            .UI_RollingNumberStrip{
+                position: relative;
+                top:0;
+                width: 0.55em;
+
+                display: flex;
+                flex-direction: column;
+            }
+            .UI_RollingNumberDigitDiv{
+                position: absolute;
+                top:0;
+
+                width: 100%;
+                height: 1.5em;
+
+                display: flex;
+                justify-content: center;
+                align-items: center;
+            }
+            .UI_RollingNumberDigitP{
+            }
+
+            /* Page */
+            html{
+                user-select: none;
+            }
+            p{
+                margin: 0;
+                padding: 0;
+            }
+            .share-tech-mono-regular {
+                font-family: "Share Tech Mono", monospace;
+                font-weight: 400;
+                font-style: normal;
+            }
+            body{
+                display: flex;
+                flex-direction: column;
+                height: 100vh;
+                overflow: hidden;
+                justify-content: space-between;
+                background-color: black;
+                color: white;
+                font-family: Share Tech Mono;
+                padding: 0;
+                margin: 0;
+            }
+            .DigitDisplayP{
+                margin-top: 0.2em;
+            }
+        </style>
+    </head>
+    
+    <body>
+        <div style="width: 100%; display: flex; justify-content: center; margin-top: 2em;">
+            <div id="NowButton" style="padding: 1em; border: 1px solid white;">
+                <p style="font-size: 1.5em;">NOW</p>
+            </div>
+        </div>
+
+
+        <div style="display: flex; flex-direction: column; row-gap: 3em;">
+            <div style="width:100%; display: flex; justify-content: center; font-size: 6.5em;">
+                <div id="YearDigit"></div>
+                <p class="DigitDisplayP">/</p>
+                <div id="MonthDigit"></div>
+                <p class="DigitDisplayP">/</p>
+                <div id="DayDigit"></div>
+            </div>
+
+            <div style="width:100%; display: flex; justify-content: center; font-size: 8em;">
+                <div id="HourDigit"></div>
+                <p class="DigitDisplayP">:</p>
+                <div id="MinuteDigit"></div>
+                <p class="DigitDisplayP">:</p>
+                <div id="SecondDigit"></div>
+            </div>
+        </div>
+
+        <div style="width:100%; display: flex; flex-direction: column; justify-content: center; align-items: center; margin-bottom: 3em;">
+            <div style="width: 80%; border-bottom: 1px solid gray;"></div>
+            <p style="font-size: 2em; margin-top: 0.5em;">x1</p>
+        </div>
+
+        <script>
+            /** An animated number display with rolling digits */
+            class UI_RollingNumber{
+                /**
+                 * @param {HTMLElement} HTML - Digit root HTML element
+                 * @param {number} ndigits - Number of digits to display
+                 * @param {number} transitionTime - Animation time for a roll in ms
+                 */
+                constructor(HTML,ndigits, transitionTime){
+                    this.transitionTime = transitionTime;
+
+                    this.HTML = document.createElement("div");
+                    this.HTML.className = "UI_RollingNumberDiv";
+                    HTML.appendChild(this.HTML);
+                    this.digits = [];
+
+                    /** @type {number} - The current value displayed */
+                    this.value = 0;
+
+                    // Create subelements:
+                    for (var d=0; d<ndigits; d++){
+                        const newDigitWindow = document.createElement("div");
+                        newDigitWindow.className = "UI_RollingNumberDigitWindow";
+                        this.HTML.appendChild(newDigitWindow);
+                        this.digits.push(newDigitWindow);
+
+                        const newStrip = document.createElement("div");
+                        newStrip.className = "UI_RollingNumberStrip";
+                        newStrip.topPosition = 0;
+                        newStrip.previousValue = 0;
+                        newStrip.style.transition = "top "+this.transitionTime+"ms linear";
+                        newDigitWindow.appendChild(newStrip);
+
+                        newStrip.appendChild(this.createDigit(0));
+                    }
+
+                    // Store size info:
+                    this.digitHeight = this.HTML.querySelector(".UI_RollingNumberDigitDiv").getBoundingClientRect().height;
+                }
+                createDigit(value){
+                    const newDigitDiv = document.createElement("div");
+                    newDigitDiv.className = "UI_RollingNumberDigitDiv";
+
+                    const newDigitP = document.createElement("p");
+                    newDigitP.className = "UI_RollingNumberDigitP";
+                    newDigitP.innerHTML = value;
+                    newDigitDiv.appendChild(newDigitP);
+                    return newDigitDiv;
+                }
+                setValue(value){
+                    if (isNaN(value)){throw new Error("Cannot set rolling number value: "+value);}
+                    value = Math.round(value);
+                    const evolutionSign = Math.sign(value-this.value);
+                    var selector = 10;
+                    var valueForSplit = value;
+                    for (var d in this.digits){
+                        // Black magic to get each number:
+                        var digitValue = valueForSplit%selector;            
+                        valueForSplit -= digitValue;
+                        digitValue = digitValue/(selector/10); // Holds the digit to be displayed at this position
+                        selector = 10*selector;
+
+                        const digitIndex = this.digits.length-1-d;
+                        const strip = this.digits[digitIndex].querySelector(".UI_RollingNumberStrip")
+
+                        // Remove child nodes:
+                        strip.innerHTML = ""
+                        
+                        // Current value
+                        const digit = this.createDigit(strip.previousValue);
+                        digit.style.top = -strip.topPosition+"px";
+                        strip.append(digit);
+
+                        // Transition values
+                        var transitionDigit = strip.previousValue;
+                        var count = 1;
+
+                        while (transitionDigit != digitValue){
+                            transitionDigit += evolutionSign;
+                            if (transitionDigit == 10){transitionDigit = 0}
+                            if (transitionDigit == -1){transitionDigit = 9}
+
+                            const digit = this.createDigit(transitionDigit);
+                            digit.style.top = -strip.topPosition + this.digitHeight*count*evolutionSign+"px";
+                            strip.append(digit);
+                            count++;
+                        }
+
+                        strip.topPosition -= evolutionSign*(count-1)*this.digitHeight;
+                        strip.style.top = strip.topPosition+"px";
+                        strip.previousValue = digitValue;
+                    }
+                    this.value = value;
+                }
+                
+            }
+
+            // Create digits
+            yearDigit = new UI_RollingNumber(document.querySelector("#YearDigit"),4,100);
+            monthDigit = new UI_RollingNumber(document.querySelector("#MonthDigit"),2,100);
+            dayDigit = new UI_RollingNumber(document.querySelector("#DayDigit"),2,100);
+            hourDigit = new UI_RollingNumber(document.querySelector("#HourDigit"),2,100);
+            minuteDigit = new UI_RollingNumber(document.querySelector("#MinuteDigit"),2,100);
+            secondDigit = new UI_RollingNumber(document.querySelector("#SecondDigit"),2,100);
+            setInterval(function(){
+                secondDigit.setValue(secondDigit.value+1);
+            },1000);
+        </script>
+    </body>
+</html>
