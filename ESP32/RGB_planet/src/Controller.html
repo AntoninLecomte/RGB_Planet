@@ -95,9 +95,13 @@
             </div>
         </div>
 
-        <div style="width:100%; display: flex; flex-direction: column; justify-content: center; align-items: center; margin-bottom: 3em;">
-            <div style="width: 80%; border-bottom: 1px solid gray;"></div>
-            <p style="font-size: 2em; margin-top: 0.5em;">x1</p>
+        <div id="TimeMultiplierDiv" style="width:100%; display: flex; flex-direction: column; justify-content: center; align-items: center; margin-bottom: 3em;">
+            <div id="TimeMultiplierBarDiv" style="width: 80%; height: 1.5em; display: flex; align-items: center; position: relative;">
+                <div id="TimeMultiplierBar" style="width: 100%; border-bottom: 0.1em solid gray;"></div>
+                <div id="TimeMultiplierMarker" style="position: absolute;  width: 1.5em; height: 1.5em; border-radius: 1.5em; top:0; background-color: white; border: 0.15em solid gray; box-sizing: border-box;"></div>
+            </div>
+            
+            <p id="TimeMultiplierP" style="font-size: 2em; margin-top: 1em;">x1</p>
         </div>
 
         <script>
@@ -197,6 +201,12 @@
                 
             }
 
+            // Initiate at current hour:
+            currentTime = new Date();
+            timeMultiplier = 10;
+            timeMultiplierMax = 10;
+            refreshLoop = 50; // ms
+
             // Create digits
             yearDigit = new UI_RollingNumber(document.querySelector("#YearDigit"),4,100);
             monthDigit = new UI_RollingNumber(document.querySelector("#MonthDigit"),2,100);
@@ -204,9 +214,46 @@
             hourDigit = new UI_RollingNumber(document.querySelector("#HourDigit"),2,100);
             minuteDigit = new UI_RollingNumber(document.querySelector("#MinuteDigit"),2,100);
             secondDigit = new UI_RollingNumber(document.querySelector("#SecondDigit"),2,100);
+            // and update function:
+            function updateDate(){
+                yearDigit.setValue(currentTime.getFullYear());
+                monthDigit.setValue(currentTime.getMonth()+1);
+                dayDigit.setValue(currentTime.getDay());
+                hourDigit.setValue(currentTime.getHours());
+                minuteDigit.setValue(currentTime.getMinutes());
+                secondDigit.setValue(currentTime.getSeconds());
+            }
+
+            // Time multiplier
+            timeMultiplierP = document.querySelector("#TimeMultiplierP");
+            timeMultiplierCursor = document.querySelector("#TimeMultiplierMarker");
+            timeMultiplierDiv = document.querySelector("#TimeMultiplierBarDiv");
+            timeMultiplierCursorDiameter = timeMultiplierCursor.getBoundingClientRect().width;
+            timeMultiplierTrackWidth = document.querySelector("#TimeMultiplierBarDiv").getBoundingClientRect().width;
+            function updateTimeMultiplier(){
+                timeMultiplierCursor.style.left = (timeMultiplierTrackWidth/2 - timeMultiplierCursorDiameter/2) + (timeMultiplierTrackWidth/2*timeMultiplier/timeMultiplierMax) + "px";
+                timeMultiplierP.innerHTML = Math.round(timeMultiplier)
+            }
+            updateTimeMultiplier();
+
+            timeMultiplierDiv.addEventListener("mousemove", function(ev){
+                if (ev.target == timeMultiplierDiv){
+                    console.log((ev.pageX - timeMultiplierDiv.getBoundingClientRect().x)/timeMultiplierTrackWidth)
+                }
+            });
+
+            // NOW button
+            document.querySelector("#NowButton").onclick = function(){
+                timeMultiplier = 1;
+                currentTime = new Date();
+                updateTimeMultiplier();
+            }
+
+            // Main loop:
             setInterval(function(){
-                secondDigit.setValue(secondDigit.value+1);
-            },1000);
+                currentTime.setMilliseconds(currentTime.getMilliseconds() + timeMultiplier*refreshLoop);
+                updateDate();
+            },refreshLoop);
         </script>
     </body>
 </html>
