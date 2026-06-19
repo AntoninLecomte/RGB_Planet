@@ -12,14 +12,14 @@
                 display: flex;
             }
             .UI_RollingNumberDigitWindow{
-                height: 1.5em;
+                height: 1em;
                 overflow-y: hidden;
                 overflow-x: hidden;
             }
             .UI_RollingNumberStrip{
                 position: relative;
                 top:0;
-                width: 0.55em;
+                width: 0.4em;
 
                 display: flex;
                 flex-direction: column;
@@ -29,13 +29,18 @@
                 top:0;
 
                 width: 100%;
-                height: 1.5em;
+                height: 1em;
 
                 display: flex;
                 justify-content: center;
                 align-items: center;
             }
             .UI_RollingNumberDigitP{
+                font-size: 0.8em;
+            }
+            .DigitDisplayP{
+                margin-top: 0.1em;
+                font-size: 0.8em;
             }
 
             /* Page */
@@ -62,9 +67,6 @@
                 font-family: Share Tech Mono;
                 padding: 0;
                 margin: 0;
-            }
-            .DigitDisplayP{
-                margin-top: 0.2em;
             }
         </style>
     </head>
@@ -105,6 +107,16 @@
         </div>
 
         <script>
+             // Initiate at current hour:
+            currentTime = new Date();
+            var timeMultiplier = 10;
+            const timeMultiplierMax = 3600*24*31;
+            const timeMultiplierSteps = [0, 1, 60, 60*30, 3600, 3600*6, 3600*12, 3600*24, 3600*24*5, 3600*24*5, timeMultiplierMax]
+            const timeMultiplierPowerFactor = 6;
+            const refreshLoop = 50; // ms
+            const commandDelay = 100; // ms
+            var lastCommandSentTimeStamp = new Date().getTime();
+
             /** An animated number display with rolling digits */
             class UI_RollingNumber{
                 /**
@@ -117,11 +129,14 @@
 
                     this.HTML = document.createElement("div");
                     this.HTML.className = "UI_RollingNumberDiv";
+                    this.HTML.ob = this;
                     HTML.appendChild(this.HTML);
                     this.digits = [];
 
-                    /** @type {number} - The current value displayed */
+                    /** @type {number} - The current value */
                     this.value = 0;
+                    /** @type {number} - The displayed value */
+                    this.displayedValue = 0;
 
                     // Create subelements:
                     for (var d=0; d<ndigits; d++){
@@ -140,6 +155,30 @@
                         newStrip.appendChild(this.createDigit(0));
                     }
 
+                    // Allow to set value by dragging:
+                    this.HTML.clicked = false;
+                    this.HTML.addEventListener("mousedown",function(ev){
+                        timeMultiplier = 0;
+                        updateTimeMultiplier();
+                        ev.currentTarget.clicked = true;
+                        ev.currentTarget.startY = ev.pageY;
+                        ev.currentTarget.startValue = ev.currentTarget.ob.value;
+                        ev.currentTarget.startDateMilliseconds = currentTime.getTime();
+                        document.body.lastScrollEventOwner = ev.currentTarget;
+                    });
+                    document.body.addEventListener("mousemove", function(ev){
+                        if (document.body.lastScrollEventOwner != null){
+                            const currentTarget = document.body.lastScrollEventOwner;
+                            if (currentTarget.clicked){
+                                const ratioY = (ev.pageY - currentTarget.startY)/currentTarget.getBoundingClientRect().height;
+                                const diff = -Math.round(ratioY*10);
+                                currentTime = new Date(currentTarget.startDateMilliseconds + diff*currentTarget.secondsPerTick*1000);
+                                sendCommand();
+                            }
+                        }
+                    });
+
+
                     // Store size info:
                     this.digitHeight = this.HTML.querySelector(".UI_RollingNumberDigitDiv").getBoundingClientRect().height;
                 }
@@ -154,71 +193,70 @@
                     return newDigitDiv;
                 }
                 setValue(value){
-                    if (isNaN(value)){throw new Error("Cannot set rolling number value: "+value);}
-                    value = Math.round(value);
-                    const evolutionSign = Math.sign(value-this.value);
-                    var selector = 10;
-                    var valueForSplit = value;
-                    for (var d in this.digits){
-                        // Black magic to get each number:
-                        var digitValue = valueForSplit%selector;            
-                        valueForSplit -= digitValue;
-                        digitValue = digitValue/(selector/10); // Holds the digit to be displayed at this position
-                        selector = 10*selector;
+                    if (value != this.value){
+                        value = Math.round(value);
+                        const evolutionSign = Math.sign(value-this.value);
+                        var selector = 10;
+                        var valueForSplit = value;
+                        for (var d in this.digits){
+                            // Black magic to get each number:
+                            var digitValue = valueForSplit%selector;            
+                            valueForSplit -= digitValue;
+                            digitValue = digitValue/(selector/10); // Holds the digit to be displayed at this position
+                            selector = 10*selector;
 
-                        const digitIndex = this.digits.length-1-d;
-                        const strip = this.digits[digitIndex].querySelector(".UI_RollingNumberStrip")
+                            const digitIndex = this.digits.length-1-d;
+                            const strip = this.digits[digitIndex].querySelector(".UI_RollingNumberStrip")
 
-                        // Remove child nodes:
-                        strip.innerHTML = ""
-                        
-                        // Current value
-                        const digit = this.createDigit(strip.previousValue);
-                        digit.style.top = -strip.topPosition+"px";
-                        strip.append(digit);
-
-                        // Transition values
-                        var transitionDigit = strip.previousValue;
-                        var count = 1;
-
-                        while (transitionDigit != digitValue){
-                            transitionDigit += evolutionSign;
-                            if (transitionDigit == 10){transitionDigit = 0}
-                            if (transitionDigit == -1){transitionDigit = 9}
-
-                            const digit = this.createDigit(transitionDigit);
-                            digit.style.top = -strip.topPosition + this.digitHeight*count*evolutionSign+"px";
+                            // Remove child nodes:
+                            strip.innerHTML = ""
+                            
+                            // Current value
+                            const digit = this.createDigit(strip.previousValue);
+                            digit.style.top = -strip.topPosition+"px";
                             strip.append(digit);
-                            count++;
-                        }
 
-                        strip.topPosition -= evolutionSign*(count-1)*this.digitHeight;
-                        strip.style.top = strip.topPosition+"px";
-                        strip.previousValue = digitValue;
+                            // Transition values
+                            var transitionDigit = strip.previousValue;
+                            var count = 1;
+
+                            while (transitionDigit != digitValue){
+                                transitionDigit += evolutionSign;
+                                if (transitionDigit == 10){transitionDigit = 0}
+                                if (transitionDigit == -1){transitionDigit = 9}
+
+                                const digit = this.createDigit(transitionDigit);
+                                digit.style.top = -strip.topPosition + this.digitHeight*count*evolutionSign+"px";
+                                strip.append(digit);
+                                count++;
+                            }
+
+                            strip.topPosition -= evolutionSign*(count-1)*this.digitHeight;
+                            strip.style.top = strip.topPosition+"px";
+                            strip.previousValue = digitValue;
+                        }
                     }
-                    this.value = value;
                 }
-                
             }
 
-            // Initiate at current hour:
-            currentTime = new Date();
-            timeMultiplier = 10;
-            timeMultiplierMax = 10;
-            refreshLoop = 50; // ms
-
             // Create digits
-            yearDigit = new UI_RollingNumber(document.querySelector("#YearDigit"),4,100);
-            monthDigit = new UI_RollingNumber(document.querySelector("#MonthDigit"),2,100);
-            dayDigit = new UI_RollingNumber(document.querySelector("#DayDigit"),2,100);
-            hourDigit = new UI_RollingNumber(document.querySelector("#HourDigit"),2,100);
-            minuteDigit = new UI_RollingNumber(document.querySelector("#MinuteDigit"),2,100);
-            secondDigit = new UI_RollingNumber(document.querySelector("#SecondDigit"),2,100);
+            yearDigit = new UI_RollingNumber(document.querySelector("#YearDigit"),4,refreshLoop);
+            yearDigit.HTML.secondsPerTick = 31556926;
+            monthDigit = new UI_RollingNumber(document.querySelector("#MonthDigit"),2,refreshLoop);
+            monthDigit.HTML.secondsPerTick = 2629746;
+            dayDigit = new UI_RollingNumber(document.querySelector("#DayDigit"),2,refreshLoop);
+            dayDigit.HTML.secondsPerTick = 3600*24;
+            hourDigit = new UI_RollingNumber(document.querySelector("#HourDigit"),2,refreshLoop);
+            hourDigit.HTML.secondsPerTick = 3600;
+            minuteDigit = new UI_RollingNumber(document.querySelector("#MinuteDigit"),2,refreshLoop);
+            minuteDigit.HTML.secondsPerTick = 60;
+            secondDigit = new UI_RollingNumber(document.querySelector("#SecondDigit"),2,refreshLoop);
+            secondDigit.HTML.secondsPerTick = 1;
             // and update function:
             function updateDate(){
                 yearDigit.setValue(currentTime.getFullYear());
                 monthDigit.setValue(currentTime.getMonth()+1);
-                dayDigit.setValue(currentTime.getDay());
+                dayDigit.setValue(currentTime.getDate());
                 hourDigit.setValue(currentTime.getHours());
                 minuteDigit.setValue(currentTime.getMinutes());
                 secondDigit.setValue(currentTime.getSeconds());
@@ -231,14 +269,51 @@
             timeMultiplierCursorDiameter = timeMultiplierCursor.getBoundingClientRect().width;
             timeMultiplierTrackWidth = document.querySelector("#TimeMultiplierBarDiv").getBoundingClientRect().width;
             function updateTimeMultiplier(){
-                timeMultiplierCursor.style.left = (timeMultiplierTrackWidth/2 - timeMultiplierCursorDiameter/2) + (timeMultiplierTrackWidth/2*timeMultiplier/timeMultiplierMax) + "px";
-                timeMultiplierP.innerHTML = Math.round(timeMultiplier)
+                const linearRatio = timeMultiplier/timeMultiplierMax;
+                const powerRatio = Math.sign(linearRatio)*Math.pow(Math.abs(linearRatio),1/timeMultiplierPowerFactor);
+                timeMultiplierCursor.style.left = (timeMultiplierTrackWidth/2 - timeMultiplierCursorDiameter/2) + (timeMultiplierTrackWidth/2*powerRatio) + "px";
+                if (timeMultiplier == 0){
+                    timeMultiplierP.innerHTML = "Stopped"
+                }
+                if (Math.abs(timeMultiplier) > 0 && Math.abs(timeMultiplier) < 60){
+                    timeMultiplierP.innerHTML = Math.round(timeMultiplier)+"s/s";
+                }
+                if (Math.abs(timeMultiplier) >= 60 && Math.abs(timeMultiplier) < 3600){
+                    timeMultiplierP.innerHTML = Math.round(timeMultiplier/60)+"mn/s";
+                }
+                if (Math.abs(timeMultiplier) >= 3600 && Math.abs(timeMultiplier) < 24*3600){
+                    timeMultiplierP.innerHTML = Math.round(timeMultiplier/3600)+"h/s";
+                }
+                if (Math.abs(timeMultiplier) >= 24*3600 && Math.abs(timeMultiplier) < 24*3600*30){
+                    timeMultiplierP.innerHTML = Math.round(timeMultiplier/(3600*24))+" days/s";
+                }
+                if (Math.abs(timeMultiplier) >= 24*3600*30){
+                    timeMultiplierP.innerHTML = Math.round(timeMultiplier/(3600*24*30))+" months/s";
+                }
+                sendCommand();
             }
             updateTimeMultiplier();
-
+            
+            timeMultiplierDiv.clicked = false;
+            timeMultiplierDiv.addEventListener("mousedown", function(ev){
+                timeMultiplierDiv.clicked = true;
+            });
             timeMultiplierDiv.addEventListener("mousemove", function(ev){
-                if (ev.target == timeMultiplierDiv){
-                    console.log((ev.pageX - timeMultiplierDiv.getBoundingClientRect().x)/timeMultiplierTrackWidth)
+                if (ev.currentTarget == timeMultiplierDiv){
+                    if (ev.currentTarget.clicked){
+                        var linearRatio = (ev.pageX - timeMultiplierDiv.getBoundingClientRect().x)/timeMultiplierTrackWidth;
+                        linearRatio = (linearRatio-0.5)*2;
+                        const powerRatio = Math.pow(Math.abs(linearRatio),timeMultiplierPowerFactor);
+                        // Find closest step:
+                        var dist = timeMultiplierMax;
+                        for (step in timeMultiplierSteps){
+                            if (Math.abs(powerRatio*timeMultiplierMax - timeMultiplierSteps[step]) < dist){
+                                dist = Math.abs(powerRatio*timeMultiplierMax - timeMultiplierSteps[step]);
+                                timeMultiplier = timeMultiplierSteps[step]*Math.sign(linearRatio);
+                            }
+                        }
+                        updateTimeMultiplier();
+                    }
                 }
             });
 
@@ -249,9 +324,31 @@
                 updateTimeMultiplier();
             }
 
+            // Release action:
+            function release(){
+                timeMultiplierDiv.clicked = false;
+                const digits = document.querySelectorAll(".UI_RollingNumberDiv");
+                for (var d in digits){
+                    digits[d].clicked = false;
+                }
+                document.body.lastScrollEventOwner = null;
+            }
+            document.body.addEventListener("mouseup", function(ev){release()});
+            document.body.addEventListener("mouseleave", function(ev){release()});
+
+            // Send data
+            function sendCommand(){
+                if (new Date().getTime() - lastCommandSentTimeStamp > commandDelay){
+                    var xmlHttp = new XMLHttpRequest();
+                    xmlHttp.open("GET", window.location.href+"/"+currentTime.getTime()+"/"+timeMultiplier, true);
+                    xmlHttp.send(null);
+                    lastCommandSentTimeStamp = new Date().getTime();
+                }
+            }
+
             // Main loop:
             setInterval(function(){
-                currentTime.setMilliseconds(currentTime.getMilliseconds() + timeMultiplier*refreshLoop);
+                currentTime = new Date(currentTime.getTime() + timeMultiplier*refreshLoop)
                 updateDate();
             },refreshLoop);
         </script>

@@ -1,6 +1,7 @@
 #include "Arduino.h"
 #include "FastLED.h"
 #include "TimeLib.h"
+#include <atomic>
 
 #include <WiFi.h>
 #include <HTTPClient.h>
@@ -66,40 +67,7 @@ void printTime(time_t t){
     Serial.print(second(t));
 }
 
-// TIME FUNCTIONS ///////////////////////////////////////////////////
-void getDateTimeFromServer(){
-    HTTPClient http;
-    http.begin(timeAPIURL);
-    // Send HTTP GET request
-    int httpResponseCode = http.GET();
-    if (httpResponseCode == 200){
-        JsonDocument doc;
-        deserializeJson(doc, http.getString());
-        const char* dateTime = doc["datetime"];
-        String dateTimeString = String(dateTime);
-
-        setTime(
-            (int) dateTimeString.substring(11,13).toInt(),
-            (int) dateTimeString.substring(14,16).toInt(),
-            (int) dateTimeString.substring(17,19).toInt(),
-            (int) dateTimeString.substring(8,10).toInt(),
-            (int) dateTimeString.substring(5,7).toInt(),
-            (int) dateTimeString.substring(0,4).toInt()
-        );
-        Serial.print("Time set to ");
-        printTime(now());
-        Serial.println();
-
-        lastTimeUpdate = millis(); // Log time stamp to check for next occurence in loop.
-    }
-    else{
-        Serial.print("Time api call failed. Response code: ");
-        Serial.println(httpResponseCode);
-    }
-    
-}
-
-// ASTRODYNAMICS FUNCTIONS
+// ASTRODYNAMICS FUNCTIONS /////////////////////////////////////////////////////////////////////////////////
 
 // Fills an sunElevations array with computed elevation for all LEDS for a given timeToCompute (UTC)
 void computeElevations(time_t timeToCompute, int sunElevations[STRIPS][LEDS_BY_STRIP]){
@@ -183,6 +151,7 @@ void scaleToColor(float scale, int rgbArray[3]){
     float redScale   = 255.0 * pow(scale, 0.2);
     float greenScale = 255.0 * pow(scale, 0.8);
     float blueScale  = 255.0 * pow(scale, 2.0);
+    float intensityScale = pow(scale,0.5);
 
     // Display scale conversion through serial:
     // Serial.print("Scale: ");
@@ -195,9 +164,9 @@ void scaleToColor(float scale, int rgbArray[3]){
     // Serial.println(blueScale);
     // delay(500);
 
-    rgbArray[0] = (int) redScale;
-    rgbArray[1] = (int) greenScale;
-    rgbArray[2] = (int) blueScale;
+    rgbArray[0] = (int) redScale*intensityScale;
+    rgbArray[1] = (int) greenScale*intensityScale;
+    rgbArray[2] = (int) blueScale*intensityScale;
 }
 
 // Dims all lights to cap power consumption
@@ -244,10 +213,10 @@ void dimToCapPower(){
 
 
 // Display the sun color scale on a given strip
-void displayColorScale(int stripID){
+void displayColorScale(int stripID, float intensity){
     for (int ledID=0; ledID < LEDS_BY_STRIP; ledID++){
         int RGBValues[3];
-        float scale = (float) ledID / (float) LEDS_BY_STRIP;
+        float scale = (float) ledID / (float) LEDS_BY_STRIP * intensity;
         scaleToColor(scale, RGBValues);
         FASTLED_Leds[stripID][ledID].setRGB(RGBValues[0],RGBValues[1],RGBValues[2]);
     }
@@ -255,111 +224,25 @@ void displayColorScale(int stripID){
     FastLED.show();
 }
 
-
-
-// Light strip by strip and led by led sequentially
-void stripTest() {
-    Serial.println("Starting strips tests");
-    int RGBValues[3];
-    float scale;
-    for (int stripID=0; stripID < STRIPS; stripID++){
-        Serial.print("   Testing strip ");
-        Serial.println(stripID);
-        for (int ledID=0; ledID < LEDS_BY_STRIP; ledID++){
-            // Switch ON
-            scale = (float) ledID / (float) LEDS_BY_STRIP;
-            scaleToColor(scale, RGBValues);
-            FASTLED_Leds[stripID][ledID].setRGB(RGBValues[0],RGBValues[1],RGBValues[2]);
-            FastLED.show();
-            delay(10);
-
-            // // Print strip test colors
-            // Serial.print("   ");
-            // Serial.print(stripID);
-            // Serial.print("/");
-            // Serial.print(ledID);
-            // Serial.print(" ");
-            // Serial.print(RGBValues[0]);
-            // Serial.print(";");
-            // Serial.print(RGBValues[1]);
-            // Serial.print(";");
-            // Serial.println(RGBValues[2]);
-
-            // Switch OFF
-            FASTLED_Leds[stripID][ledID] = CRGB::Black; 
-            FastLED.show();
-            delay(10);
-        }
-        // Reverse light wave test back to start:
-        for (int ledID=LEDS_BY_STRIP-1; ledID >= 0; ledID--){
-            // Switch ON
-            scale = (float) ledID / (float) LEDS_BY_STRIP;
-            scaleToColor(scale, RGBValues);
-            FASTLED_Leds[stripID][ledID].setRGB(RGBValues[0],RGBValues[1],RGBValues[2]);
-            FastLED.show();
-            delay(10);
-
-            // Switch OFF
-            FASTLED_Leds[stripID][ledID] = CRGB::Black;
-            FastLED.show();
-            delay(10);
+std::atomic<bool> waitAnimationFlag(true);
+// Display a spiraling wave going up around the globe, spacing lights with interDelay ms
+void waitAnimation(void *parameters){
+    // Runs forever until the task is stopped:
+    while (waitAnimationFlag.load()){
+        for (int strip=0; strip<STRIPS;strip++){
+            if (waitAnimationFlag.load() == false){
+                break;
+            }
+            for (float intensity=0.0; intensity<1.0; intensity+=0.02){
+                displayColorScale(strip,pow(intensity,2));
+            }
+            for (float intensity=1.0; intensity>0.0; intensity-=0.02){
+                displayColorScale(strip,pow(intensity,2));
+            }
         }
     }
-    Serial.println("Strips tests ended");
-}
-
-// Display a spiraling wave going up around the globe
-void spiralTest(){
-    int RGBValues[3];
-    float scale;
-    for (int ledID=0; ledID < LEDS_BY_STRIP/2; ledID++){
-        // Color for this latitude:
-        scale = (float) ledID / (float) LEDS_BY_STRIP * 2.0;
-        scaleToColor(scale, RGBValues);
-
-        // Standard hemisphere
-        for (int stripID=0; stripID < STRIPS; stripID++){
-            // Show coordinates
-            // Serial.print(stripID);
-            // Serial.print(";");
-            // Serial.print(ledID);
-            // Serial.print(" - ");
-            // Serial.print(longitudes[stripID][ledID]);
-            // Serial.print(";");
-            // Serial.println(latitudes[stripID][ledID]);
-
-            // Switch ON
-            FASTLED_Leds[stripID][ledID].setRGB(RGBValues[0],RGBValues[1],RGBValues[2]);
-            FastLED.show();
-            delay(20);
-
-            // Switch OFF
-            FASTLED_Leds[stripID][ledID] = CRGB::Black;
-            FastLED.show();
-            delay(20);
-        }
-        // Mirror hemisphere
-        for (int stripID=0; stripID < STRIPS; stripID++){
-            // Show coordinates
-            // Serial.print(stripID);
-            // Serial.print(";");
-            // Serial.print(ledID);
-            // Serial.print(" - ");
-            // Serial.print(longitudes[stripID][LEDS_BY_STRIP-ledID]);
-            // Serial.print(";");
-            // Serial.println(latitudes[stripID][LEDS_BY_STRIP-ledID]);
-
-            // Switch ON
-            FASTLED_Leds[stripID][LEDS_BY_STRIP-ledID].setRGB(RGBValues[0],RGBValues[1],RGBValues[2]);
-            FastLED.show();
-            delay(20);
-
-            // Switch OFF
-            FASTLED_Leds[stripID][LEDS_BY_STRIP-ledID] = CRGB::Black;
-            FastLED.show();
-            delay(20);
-        }
-    }
+    
+    vTaskDelete(NULL);
 }
 
 // Switches all LEDS off
@@ -401,8 +284,19 @@ void displayDate(time_t date){
     elevationsToColors(sunElevations);
 }
 
+// animateToDate function arguments
+struct animateToDateParams{
+    int duration;
+    time_t targetDate;
+    long forcedDateStep;
+};
 // Animate sun position from current date to targetDate in duration milliseconds. If forcedDateStep is specified, goes to the closest round number of iterations to match the duration.
-void animateToDate(int duration, time_t targetDate, long forcedDateStep){
+void animateToDate(void *parameters){
+    animateToDateParams *config = (animateToDateParams*) parameters;
+    int duration = config->duration;
+    time_t targetDate = config->targetDate;
+    long forcedDateStep = config->forcedDateStep;
+
     time_t animatedTime = now(); // Store start date, to be animated
     time_t startTime = now(); // Keep track of starting time
     long step = 0; // Steps counter for animation
@@ -431,15 +325,13 @@ void animateToDate(int duration, time_t targetDate, long forcedDateStep){
         displayDate(animatedTime);
         step++;
     }
+    vTaskDelete(NULL);
 }
 
+// INTERFACE FUNCTIONS ///////////////////////////////////////////////////////
 
-void setup() {
-    // Power-up safety delay
-    delay(1000);
-    Serial.begin(9600);
-
-    // Connect to WiFi:
+// Connect to the wifi network
+void connectWiFi(){    
     WiFi.begin(ssid, password);
     Serial.print("Connecting to ");
     Serial.println(ssid);
@@ -450,9 +342,51 @@ void setup() {
     Serial.println("");
     Serial.print("Connected. IP Address: ");
     Serial.println(WiFi.localIP());
+}
+// Gets time stamp from time server and sets the board time accordingly
+void getDateTimeFromServer(){
+    HTTPClient http;
+    http.begin(timeAPIURL);
+    // Send HTTP GET request
+    int httpResponseCode = http.GET();
+    if (httpResponseCode == 200){
+        JsonDocument doc;
+        deserializeJson(doc, http.getString());
+        const char* dateTime = doc["datetime"];
+        String dateTimeString = String(dateTime);
 
-    // Get hour:
-    getDateTimeFromServer();
+        setTime(
+            (int) dateTimeString.substring(11,13).toInt(),
+            (int) dateTimeString.substring(14,16).toInt(),
+            (int) dateTimeString.substring(17,19).toInt(),
+            (int) dateTimeString.substring(8,10).toInt(),
+            (int) dateTimeString.substring(5,7).toInt(),
+            (int) dateTimeString.substring(0,4).toInt()
+        );
+        Serial.print("Time set to ");
+        printTime(now());
+        Serial.println();
+
+        lastTimeUpdate = millis(); // Log time stamp to check for next occurence in loop.
+    }
+    else{
+        Serial.print("Time api call failed. Response code: ");
+        Serial.println(httpResponseCode);
+    }
+}
+
+// Interface loop runs on core 0 and handle all time and network interfaces
+void interfaceLoop() {
+    // Check time and update if necessary:
+    if ((millis() - lastTimeUpdate) > timeSyncInterval){
+        getDateTimeFromServer();
+    }
+}
+
+void setup() {
+    // Power-up safety delay
+    delay(500);
+    Serial.begin(9600);
 
     // Generate coordinates
     maxLatitudes = LEDS_SPACING * (float) LEDS_BY_STRIP / LEDS_DIAMETER * RAD_TO_DEG/2.0;
@@ -496,14 +430,19 @@ void setup() {
     FastLED.addLeds<WS2812B, STRIP_PIN_7, GRB> (FASTLED_Leds[7], LEDS_BY_STRIP);
     FastLED.addLeds<WS2812B, STRIP_PIN_8, GRB> (FASTLED_Leds[8], LEDS_BY_STRIP);
     FastLED.addLeds<WS2812B, STRIP_PIN_9, GRB> (FASTLED_Leds[9], LEDS_BY_STRIP);
+
+    // Run spiral animation to wait
+    xTaskCreatePinnedToCore(waitAnimation,"waitAnimation",10000,NULL,0,NULL,0);
+
+    connectWiFi();
+    getDateTimeFromServer();
+    
+    waitAnimationFlag.store(false);
+    delay(2000);
 }
 
+// Main loop is run on core 1 and handles all LED control
 void loop() {
-    // Check time and update if necessary:
-    if ((millis() - lastTimeUpdate) > timeSyncInterval){
-        getDateTimeFromServer();
-    }
-
     Serial.print("Running new loop: ");
     printTime(now());
     Serial.println();
@@ -516,6 +455,14 @@ void loop() {
     // animateToDate(3000,now()+24*60*60,0);
     
     // Animate a year:
-    animateToDate(5000, now()+365*24*60*60, 24*60*60);
+    animateToDateParams animateParams;
+    animateParams.duration = 5000;
+    animateParams.targetDate = now()+360*24*60*60;
+    animateParams.forcedDateStep = 24*60*60;
+    xTaskCreatePinnedToCore(animateToDate,"animateToDate",10000,&animateParams,0,NULL,0);
+
+    delay(2000000);
 }
+
+
 
