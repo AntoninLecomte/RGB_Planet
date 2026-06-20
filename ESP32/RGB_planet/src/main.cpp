@@ -4,6 +4,8 @@
 #include <atomic>
 
 #include <WiFi.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 
@@ -13,6 +15,16 @@ const char* password = "soSTow6NaRiqu";
 
 // NTP server
 const char* timeAPIURL = "https://time.now/developer/api/ip";
+
+// Web server
+AsyncWebServer server(80);
+AsyncWebSocket ws("/ws");
+
+// Time variables
+unsigned long lastTimeServerUpdate; // Millis stamps for last synchronization with the time server
+unsigned long timeSyncInterval = 60000*10; // Delay in milliseconds between two synchronisations with the time server
+time_t clientTime; // Time received in real time by the client
+long clientTimeMultiplier; // Time multiplier factor received in real time from the client
 
 // LED strips pins:
 #define STRIP_PIN_0 16
@@ -37,15 +49,10 @@ const int STRIPS = 10;
 const int LEDS_BY_STRIP = 40;
 double maxLatitudes = 0.0; // Max latitude in degrees
 
-
 // Coordinates and sun data:
 double longitudes[STRIPS][LEDS_BY_STRIP]; // Stores longitude associated to each LED
 double latitudes[STRIPS][LEDS_BY_STRIP]; // Stores latitude associated to each LED
 int sunElevations[STRIPS][LEDS_BY_STRIP]; // Stores calculated sun elevations
-
-// Time variables
-unsigned long lastTimeUpdate; // Millis stamps for last synchronization with the time server
-unsigned long timeSyncInterval = 60000*10; // Delay in milliseconds between two synchronisations with the time server
 
 long frameRefreshTime = 50; //estimated time between two frames when animating in ms
 
@@ -340,7 +347,7 @@ void connectWiFi(){
         Serial.print(".");
     }
     Serial.println("");
-    Serial.print("Connected. IP Address: ");
+    Serial.print("Connected. Server running on ");
     Serial.println(WiFi.localIP());
 }
 // Gets time stamp from time server and sets the board time accordingly
@@ -367,7 +374,7 @@ void getDateTimeFromServer(){
         printTime(now());
         Serial.println();
 
-        lastTimeUpdate = millis(); // Log time stamp to check for next occurence in loop.
+        lastTimeServerUpdate = millis(); // Log time stamp to check for next occurence in loop.
     }
     else{
         Serial.print("Time api call failed. Response code: ");
@@ -375,12 +382,45 @@ void getDateTimeFromServer(){
     }
 }
 
-// Interface loop runs on core 0 and handle all time and network interfaces
-void interfaceLoop() {
-    // Check time and update if necessary:
-    if ((millis() - lastTimeUpdate) > timeSyncInterval){
-        getDateTimeFromServer();
+// Handle incoming WebSocket messages
+void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
+    AwsFrameInfo *info = (AwsFrameInfo*)arg;
+    if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
+        data[len] = 0; // Null-terminate incoming byte payload safely
+        char* message = (char*)data;
+        Serial.print(message);
+        Serial.print(" ");
+        char* token1 = strtok(message, ",");
+        if (token1 != NULL) {
+            char* token2 = strtok(NULL, ",");
+            if (token2 != NULL){
+                int64_t ms_timestamp = strtoll(token1, NULL, 10); // Going through int64_t to avoid overflow
+                clientTime =  (time_t)(ms_timestamp / 1000);
+                clientTimeMultiplier = strtol(token2, NULL, 10);
+                Serial.print(clientTime);
+                Serial.print(" ");
+                Serial.println(clientTimeMultiplier);
+            }
+        }
     }
+}
+// WebSocket event handler
+void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
+             void *arg, uint8_t *data, size_t len) {
+  switch (type) {
+    case WS_EVT_CONNECT:
+      Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+      break;
+    case WS_EVT_DISCONNECT:
+      Serial.printf("WebSocket client #%u disconnected\n", client->id());
+      break;
+    case WS_EVT_DATA:
+      handleWebSocketMessage(arg, data, len);
+      break;
+    case WS_EVT_PONG:
+    case WS_EVT_ERROR:
+      break;
+  }
 }
 
 void setup() {
@@ -436,33 +476,25 @@ void setup() {
 
     connectWiFi();
     getDateTimeFromServer();
-    
+    // Initialize WebSocket
+    ws.onEvent(onEvent);
+    server.addHandler(&ws);
+    // Start server
+    server.begin();
+
     waitAnimationFlag.store(false);
     delay(2000);
 }
 
 // Main loop is run on core 1 and handles all LED control
 void loop() {
-    Serial.print("Running new loop: ");
-    printTime(now());
-    Serial.println();
-
-    // Show current time:
-    // displayDate(now());
-    // delay(1000);
-
-    // Animate a day:
-    // animateToDate(3000,now()+24*60*60,0);
-    
+    ws.cleanupClients(); // Clean up heap memory
+    delay(1000);
     // Animate a year:
-    animateToDateParams animateParams;
-    animateParams.duration = 5000;
-    animateParams.targetDate = now()+360*24*60*60;
-    animateParams.forcedDateStep = 24*60*60;
-    xTaskCreatePinnedToCore(animateToDate,"animateToDate",10000,&animateParams,0,NULL,0);
+    // animateToDateParams animateParams;
+    // animateParams.duration = 5000;
+    // animateParams.targetDate = now()+360*24*60*60;
+    // animateParams.forcedDateStep = 24*60*60;
+    // xTaskCreatePinnedToCore(animateToDate,"animateToDate",10000,&animateParams,0,NULL,0);
 
-    delay(2000000);
 }
-
-
-

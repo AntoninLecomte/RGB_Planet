@@ -109,13 +109,20 @@
         <script>
              // Initiate at current hour:
             currentTime = new Date();
-            var timeMultiplier = 10;
+            var timeMultiplier = 0;
             const timeMultiplierMax = 3600*24*31;
             const timeMultiplierSteps = [0, 1, 60, 60*30, 3600, 3600*6, 3600*12, 3600*24, 3600*24*5, 3600*24*5, timeMultiplierMax]
             const timeMultiplierPowerFactor = 6;
             const refreshLoop = 50; // ms
-            const commandDelay = 100; // ms
+
+            // Command vars:
             var lastCommandSentTimeStamp = new Date().getTime();
+            const commandDelay = 1000; // ms
+            // Web socket vars:
+            var webSocketConnected = false;
+            const ESP32_IP = "192.168.1.17"; 
+            let socket;
+            let transmitTimer;
 
             /** An animated number display with rolling digits */
             class UI_RollingNumber{
@@ -339,12 +346,36 @@
             // Send data
             function sendCommand(){
                 if (new Date().getTime() - lastCommandSentTimeStamp > commandDelay){
-                    var xmlHttp = new XMLHttpRequest();
-                    xmlHttp.open("GET", window.location.href+"/"+currentTime.getTime()+"/"+timeMultiplier, true);
-                    xmlHttp.send(null);
+                    if (webSocketConnected){
+                        if (socket.readyState === WebSocket.OPEN && socket.bufferedAmount === 0) {
+                            const payload = currentTime.getTime()+","+timeMultiplier;
+                            console.log(payload);
+                            socket.send(payload);
+                        }
+                    }
                     lastCommandSentTimeStamp = new Date().getTime();
                 }
             }
+            function initWebSocket() {
+                socket = new WebSocket(`ws://${ESP32_IP}/ws`);
+
+                socket.onopen = () => {
+                    console.info("Socket opened");
+                    webSocketConnected = true;
+                };
+
+                socket.onclose = () => {
+                    console.info("Socket closed. Reconnecting...");
+                    // Attempt to reconnect automatically in 2 seconds
+                    setTimeout(initWebSocket, 5000); 
+                    webSocketConnected = false;
+                };
+                socket.onerror = (error) => {
+                    console.error("WebSocket Error: ", error);
+                };
+            }
+
+            initWebSocket();
 
             // Main loop:
             setInterval(function(){
