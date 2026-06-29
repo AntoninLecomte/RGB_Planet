@@ -15,16 +15,24 @@ const char* password = "soSTow6NaRiqu";
 
 // NTP server
 const char* timeAPIURL = "https://time.now/developer/api/ip";
+unsigned long NTPSyncInterval = 60000*10; // Delay in milliseconds between two synchronisations with the time server
+unsigned long lastNTPUpdate; // Millis stamps for last synchronization with the time server
+
 
 // Web server
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 
 // Time variables
-unsigned long lastTimeServerUpdate; // Millis stamps for last synchronization with the time server
-unsigned long timeSyncInterval = 60000*10; // Delay in milliseconds between two synchronisations with the time server
-time_t clientTime; // Time received in real time by the client
-long clientTimeMultiplier; // Time multiplier factor received in real time from the client
+unsigned long long countedTime; // Time used to count subsecond intervals, in ms
+time_t displayedTime; // Time received in real time by the client
+time_t lastDisplayedTime; // Last state displayed on the LEDs; to avoid unecessary calculations
+long displayedTimeUpdateThreshold = 5; //s, threshold between two dates below which the LEDS are not updated
+long displayedTimeMultiplier = 1; // Time multiplier factor received in real time from the client
+unsigned long lastClientLoop; // Millis stamp to count the time and synchronize with client
+
+// Runing mode
+int RUNNING_MODE = 0; // 0 client controlled, 1 autonomous clock
 
 // LED strips pins:
 #define STRIP_PIN_0 16
@@ -291,46 +299,22 @@ void displayDate(time_t date){
     elevationsToColors(sunElevations);
 }
 
-// animateToDate function arguments
-struct animateToDateParams{
-    int duration;
-    time_t targetDate;
-    long forcedDateStep;
-};
-// Animate sun position from current date to targetDate in duration milliseconds. If forcedDateStep is specified, goes to the closest round number of iterations to match the duration.
-void animateToDate(void *parameters){
-    animateToDateParams *config = (animateToDateParams*) parameters;
-    int duration = config->duration;
-    time_t targetDate = config->targetDate;
-    long forcedDateStep = config->forcedDateStep;
+// Infinite task updating the LEDs according to client control as fast as possible:
+void showClientDateTask(void *parameters){
+    while (true){
+        countedTime += (millis() - lastClientLoop)*displayedTimeMultiplier;
+        lastClientLoop = millis();
 
-    time_t animatedTime = now(); // Store start date, to be animated
-    time_t startTime = now(); // Keep track of starting time
-    long step = 0; // Steps counter for animation
-    float ratio; // For animation, 0 to 1 linear
-    float animatedProgress; // 0 to 1 cubic
-
-    long n_steps = (long) ((float) duration / (float) frameRefreshTime); // Number of steps that will be executed
-    long totalSeconds = targetDate - animatedTime; // Total duration between current date and target date in seconds
-    long dateStep;
-    if (forcedDateStep != 0){
-        dateStep = round(totalSeconds/n_steps/forcedDateStep)*forcedDateStep;
-        if (dateStep == 0){dateStep = forcedDateStep;}
-    }
-
-    while (animatedTime < targetDate){
-        ratio = (float) step / (float) n_steps;
-        // animatedProgress =  -(cos(PI * ratio) - 1) / 2; // Sine
-        animatedProgress = ratio; // Linear
-
-        if (forcedDateStep == 0){
-            animatedTime = startTime + animatedProgress*totalSeconds;
+        if (((unsigned long long) (countedTime/1000ULL) - lastDisplayedTime) >= displayedTimeUpdateThreshold){
+            displayedTime = (time_t) (unsigned long long) (countedTime/1000ULL);
+            displayDate(displayedTime);
+            lastDisplayedTime = displayedTime;
+            
+            // printTime(displayedTime);
+            // Serial.println();
         }else{
-            animatedTime += dateStep;
+            delay(5);
         }
-
-        displayDate(animatedTime);
-        step++;
     }
     vTaskDelete(NULL);
 }
@@ -370,11 +354,11 @@ void getDateTimeFromServer(){
             (int) dateTimeString.substring(5,7).toInt(),
             (int) dateTimeString.substring(0,4).toInt()
         );
-        Serial.print("Time set to ");
-        printTime(now());
+        countedTime = (unsigned long long) now()*1000ULL;
+        printTime(countedTime/1000);
         Serial.println();
 
-        lastTimeServerUpdate = millis(); // Log time stamp to check for next occurence in loop.
+        lastNTPUpdate = millis(); // Log time stamp to check for next occurence in loop.
     }
     else{
         Serial.print("Time api call failed. Response code: ");
@@ -394,12 +378,12 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
         if (token1 != NULL) {
             char* token2 = strtok(NULL, ",");
             if (token2 != NULL){
-                int64_t ms_timestamp = strtoll(token1, NULL, 10); // Going through int64_t to avoid overflow
-                clientTime =  (time_t)(ms_timestamp / 1000);
-                clientTimeMultiplier = strtol(token2, NULL, 10);
-                Serial.print(clientTime);
+                unsigned long long ms_timestamp = strtoll(token1, NULL, 10);
+                countedTime = ms_timestamp;
+                displayedTimeMultiplier = strtol(token2, NULL, 10);
+                Serial.print(displayedTime);
                 Serial.print(" ");
-                Serial.println(clientTimeMultiplier);
+                Serial.println(displayedTimeMultiplier);
             }
         }
     }
@@ -484,12 +468,18 @@ void setup() {
 
     waitAnimationFlag.store(false);
     delay(2000);
+    lastClientLoop = millis();
+
+    // Start date display loop:
+    xTaskCreatePinnedToCore(showClientDateTask,"showClientDateTask",10000,NULL,0,NULL,0);
+
 }
 
 // Main loop is run on core 1 and handles all LED control
 void loop() {
     ws.cleanupClients(); // Clean up heap memory
     delay(1000);
+
     // Animate a year:
     // animateToDateParams animateParams;
     // animateParams.duration = 5000;

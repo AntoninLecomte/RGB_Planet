@@ -109,6 +109,7 @@
         <script>
              // Initiate at current hour:
             currentTime = new Date();
+            timeOffset = -currentTime.getTimezoneOffset(); // UTC + hours
             var timeMultiplier = 0;
             const timeMultiplierMax = 3600*24*31;
             const timeMultiplierSteps = [0, 1, 60, 60*30, 3600, 3600*6, 3600*12, 3600*24, 3600*24*5, 3600*24*5, timeMultiplierMax]
@@ -117,10 +118,12 @@
 
             // Command vars:
             var lastCommandSentTimeStamp = new Date().getTime();
-            const commandDelay = 1000; // ms
+            const commandDelay = 50; // ms
+            var lastCommand = ""; // Used to prevent transmitting when no change has occured
+            var nextCommand = ""; // Used to backlog next command if the delay is too short
             // Web socket vars:
             var webSocketConnected = false;
-            const ESP32_IP = "192.168.1.17"; 
+            const ESP32_IP = "192.168.1.102"; 
             let socket;
             let transmitTimer;
 
@@ -180,7 +183,7 @@
                                 const ratioY = (ev.pageY - currentTarget.startY)/currentTarget.getBoundingClientRect().height;
                                 const diff = -Math.round(ratioY*10);
                                 currentTime = new Date(currentTarget.startDateMilliseconds + diff*currentTarget.secondsPerTick*1000);
-                                sendCommand();
+                                requireCommand();
                             }
                         }
                     });
@@ -297,7 +300,7 @@
                 if (Math.abs(timeMultiplier) >= 24*3600*30){
                     timeMultiplierP.innerHTML = Math.round(timeMultiplier/(3600*24*30))+" months/s";
                 }
-                sendCommand();
+                requireCommand();
             }
             updateTimeMultiplier();
             
@@ -343,17 +346,23 @@
             document.body.addEventListener("mouseup", function(ev){release()});
             document.body.addEventListener("mouseleave", function(ev){release()});
 
-            // Send data
+            // Schedule the current parameters to be sent to the board at next command loop
+            function requireCommand(){
+                nextCommand = (currentTime.getTime()+60*1000*timeOffset)+","+timeMultiplier;
+            }
+            // Send command to the board only if change is detected and if the commands are not too close in time
             function sendCommand(){
                 if (new Date().getTime() - lastCommandSentTimeStamp > commandDelay){
-                    if (webSocketConnected){
-                        if (socket.readyState === WebSocket.OPEN && socket.bufferedAmount === 0) {
-                            const payload = currentTime.getTime()+","+timeMultiplier;
-                            console.log(payload);
-                            socket.send(payload);
+                    if (nextCommand != lastCommand){
+                        if (webSocketConnected){
+                            if (socket.readyState === WebSocket.OPEN && socket.bufferedAmount === 0) {
+                                console.log(nextCommand);
+                                socket.send(nextCommand);
+                            }
                         }
+                        lastCommand = nextCommand;
+                        lastCommandSentTimeStamp = new Date().getTime();
                     }
-                    lastCommandSentTimeStamp = new Date().getTime();
                 }
             }
             function initWebSocket() {
@@ -381,6 +390,7 @@
             setInterval(function(){
                 currentTime = new Date(currentTime.getTime() + timeMultiplier*refreshLoop)
                 updateDate();
+                sendCommand();
             },refreshLoop);
         </script>
     </body>
